@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>高鐵餘票監控</title>
+<style>
+  :root {
+    --bg: #f4f1ea; --card: #fffdf8; --ink: #1d1b16; --muted: #6f6a5e;
+    --line: #ded8c8; --accent: #e8590c; --ok: #1a7f4b; --ok-bg: #dcf3e5;
+    --full: #8a8577; --full-bg: #ebe7da;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15140f; --card: #1f1d17; --ink: #f1ede2; --muted: #a09a8a;
+      --line: #35322a; --accent: #ff7a2f; --ok: #5fd699; --ok-bg: #173526;
+      --full: #8f8a7c; --full-bg: #2a2821;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.5 -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  main { max-width: 520px; margin: 0 auto; padding: 20px 16px 48px; }
+  header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: .02em; }
+  header span { color: var(--muted); font-size: 13px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 14px; margin-bottom: 14px;
+  }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .row.three { grid-template-columns: 1.3fr 1fr 1fr; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  .row label { margin-top: 0; }
+  input + .row, .row + label { margin-top: 10px; }
+  input, select {
+    width: 100%; min-width: 0; height: 44px; padding: 0 10px; font: inherit;
+    color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+    border-radius: 10px; appearance: none; -webkit-appearance: none;
+  }
+  input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .check { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 15px; color: var(--ink); }
+  .check input { width: 20px; height: 20px; appearance: auto; -webkit-appearance: auto; accent-color: var(--accent); }
+  details summary { cursor: pointer; font-size: 14px; color: var(--muted); padding: 4px 0; }
+  details[open] summary { margin-bottom: 8px; }
+  .hint { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+  .hint a { color: var(--accent); }
+  button#toggle {
+    width: 100%; height: 54px; border: 0; border-radius: 14px; font: inherit;
+    font-size: 18px; font-weight: 700; color: #fff; background: var(--accent);
+    margin-bottom: 14px;
+  }
+  button#toggle.running { background: transparent; color: var(--ink); border: 2px solid var(--ink); }
+  #alert {
+    display: none; background: var(--ok); color: #fff; border-radius: 14px;
+    padding: 16px; margin-bottom: 14px; animation: pulse 1s ease-in-out infinite alternate;
+  }
+  #alert.show { display: block; }
+  #alert strong { display: block; font-size: 19px; margin-bottom: 4px; }
+  #alert a {
+    display: block; margin-top: 12px; text-align: center; background: #fff; color: #14532d;
+    font-weight: 700; text-decoration: none; padding: 12px; border-radius: 10px;
+  }
+  @keyframes pulse { from { opacity: 1; } to { opacity: .82; } }
+  @media (prefers-reduced-motion: reduce) { #alert { animation: none; } }
+  #status { font-size: 13px; color: var(--muted); min-height: 20px; margin: 0 2px 8px; }
+  #status.err { color: #d6336c; }
+  ul#trains { list-style: none; margin: 0; padding: 0; }
+  ul#trains li {
+    display: flex; align-items: center; gap: 12px; padding: 12px 2px;
+    border-top: 1px solid var(--line); font-variant-numeric: tabular-nums;
+  }
+  ul#trains li:first-child { border-top: 0; }
+  .time { font-size: 22px; font-weight: 700; }
+  .no { color: var(--muted); font-size: 13px; flex: 1; }
+  .pill { font-size: 13px; font-weight: 700; padding: 4px 10px; border-radius: 99px; white-space: nowrap; }
+  .pill.open { background: var(--ok-bg); color: var(--ok); }
+  .pill.full { background: var(--full-bg); color: var(--full); }
+  .empty { color: var(--muted); font-size: 14px; padding: 6px 2px; }
+</style>
+</head>
+<body>
+<main>
+  <header><h1>高鐵餘票監控</h1><span>有位就響鈴通知</span></header>
+
+  <div id="alert" role="alert">
+    <strong id="alertTitle"></strong>
+    <span id="alertBody"></span>
+    <a href="https://irs.thsrc.com.tw/IMINT/" target="_blank" rel="noopener">前往高鐵訂票 →</a>
+  </div>
+
+  <form id="form" class="card">
+    <div class="row">
+      <div><label for="from">起站</label><select id="from"></select></div>
+      <div><label for="to">迄站</label><select id="to"></select></div>
+    </div>
+    <label for="date">日期</label><input id="date" type="date" value="2026-11-27" required>
+    <div class="row">
+      <div><label for="start">最早</label><input id="start" type="time" value="13:00" required></div>
+      <div><label for="end">最晚</label><input id="end" type="time" value="14:00" required></div>
+    </div>
+    <label class="check"><input id="business" type="checkbox">商務艙有位也通知</label>
+  </form>
+
+  <details class="card" id="settings">
+    <summary>TDX 金鑰與進階設定</summary>
+    <label for="cid">Client ID</label>
+    <input id="cid" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <label for="secret">Client Secret</label>
+    <input id="secret" type="password" autocomplete="off">
+    <p class="hint">到 <a href="https://tdx.transportdata.tw" target="_blank" rel="noopener">tdx.transportdata.tw</a> 免費註冊後建立 API Key。金鑰只存在這支手機的瀏覽器裡。</p>
+    <div class="row">
+      <div><label for="interval">查詢間隔（秒）</label><input id="interval" type="number" min="10" value="30" inputmode="numeric"></div>
+      <div><label for="ntfy">ntfy 頻道（選填）</label><input id="ntfy" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+    </div>
+  </details>
+
+  <button id="toggle" type="button">開始監控</button>
+
+  <p id="status"></p>
+  <div class="card"><ul id="trains"><li class="empty">尚未開始監控</li></ul></div>
+  <p class="hint">監控期間請保持這個頁面開啟、螢幕不要關閉（頁面會嘗試讓螢幕保持恆亮）。訂票與驗證碼請自行在高鐵網站或 T-EX App 完成。</p>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var STATIONS = [["南港","0990"],["台北","1000"],["板橋","1010"],["桃園","1020"],
+    ["新竹","1030"],["苗栗","1035"],["台中","1040"],["彰化","1043"],
+    ["雲林","1047"],["嘉義","1050"],["台南","1060"],["左營","1070"]];
+  var TOKEN_URL = "https://tdx.transportdata.tw/auth/realms/TDXConnect/protocol/openid-connect/token";
+  var API = "https://tdx.transportdata.tw/api/basic/v2/Rail/THSR";
+  var OPEN = { O: 1, L: 1, AVAILABLE: 1, LIMITED: 1 };
+  var FIELDS = ["from","to","date","start","end","cid","secret","interval","ntfy"];
+  var $ = function (id) { return document.getElementById(id); };
+
+  // ---- 表單初始化與記憶設定 ----
+  ["from","to"].forEach(function (id) {
+    STATIONS.forEach(function (s) {
+      var o = document.createElement("option");
+      o.value = s[1]; o.textContent = s[0]; $(id).appendChild(o);
+    });
+  });
+  $("from").value = "1060"; $("to").value = "1000";
+
+  function load() {
+    try {
+      var s = JSON.parse(localStorage.getItem("thsr-watch") || "{}");
+      FIELDS.forEach(function (f) { if (s[f]) $(f).value = s[f]; });
+      $("business").checked = !!s.business;
+    } catch (e) {}
+    if (!$("cid").value || !$("secret").value) $("settings").open = true;
+  }
+  function save() {
+    try {
+      var s = { business: $("business").checked };
+      FIELDS.forEach(function (f) { s[f] = $(f).value; });
+      localStorage.setItem("thsr-watch", JSON.stringify(s));
+    } catch (e) {}
+  }
+  load();
+
+  // ---- TDX ----
+  var token = null, tokenExp = 0;
+  function getToken() {
+    if (token && Date.now() < tokenExp - 60000) return Promise.resolve(token);
+    var body = new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: $("cid").value.trim(),
+      client_secret: $("secret").value.trim()
+    });
+    return fetch(TOKEN_URL, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: body
+    }).then(function (r) {
+      if (!r.ok) throw new Error("金鑰驗證失敗（" + r.status + "），請檢查 Client ID / Secret");
+      return r.json();
+    }).then(function (j) {
+      token = j.access_token;
+      tokenExp = Date.now() + (j.expires_in || 3600) * 1000;
+      return token;
+    });
+  }
+  function api(path) {
+    return getToken().then(function (t) {
+      return fetch(API + "/" + path + "?%24format=JSON", {
+        headers: { authorization: "Bearer " + t, accept: "application/json" }
+      });
+    }).then(function (r) {
+      if (r.status === 401) token = null;
+      if (r.status === 429) throw new Error("查詢太頻繁，被 TDX 暫時限制，稍後自動重試");
+      if (!r.ok) throw new Error("TDX 回應錯誤 " + r.status);
+      return r.json();
+    });
+  }
+  function mins(s) { var p = s.split(":"); return (+p[0]) * 60 + (+p[1]); }
+  function seatState(row, key, dest) {
+    var v = row[key];
+    if (v == null && row.StopStations) {
+      row.StopStations.forEach(function (st) { if (st.StationID === dest) v = st[key]; });
+    }
+    return String(v || "").trim().toUpperCase();
+  }
+
+  // ---- 通知 ----
+  var audio = null, beepTimer = null, wakeLock = null;
+  function beep() {
+    if (!audio) return;
+    [0, 0.25, 0.5].forEach(function (d) {
+      var o = audio.createOscillator(), g = audio.createGain();
+      o.frequency.value = 1320; o.connect(g); g.connect(audio.destination);
+      g.gain.setValueAtTime(0.4, audio.currentTime + d);
+      g.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + d + 0.2);
+      o.start(audio.currentTime + d); o.stop(audio.currentTime + d + 0.2);
+    });
+    if (navigator.vibrate) { try { navigator.vibrate([300, 150, 300, 150, 300]); } catch (e) {} }
+  }
+  function alertUser(list) {
+    $("alertTitle").textContent = "有座位了！";
+    $("alertBody").textContent = list.join("、");
+    $("alert").classList.add("show");
+    $("alert").scrollIntoView({ block: "start", behavior: "smooth" });
+    document.title = "🚄 有位！高鐵餘票監控";
+    beep();
+    clearInterval(beepTimer);
+    var n = 0;
+    beepTimer = setInterval(function () { if (++n >= 10) clearInterval(beepTimer); beep(); }, 3000);
+    var topic = $("ntfy").value.trim();
+    if (topic) {
+      fetch("https://ntfy.sh/" + encodeURIComponent(topic), {
+        method: "POST", body: "高鐵有座位了：" + list.join("、")
+      }).catch(function () {});
+    }
+  }
+  function clearAlert() {
+    clearInterval(beepTimer);
+    $("alert").classList.remove("show");
+    document.title = "高鐵餘票監控";
+  }
+  function keepAwake() {
+    if (!("wakeLock" in navigator)) return;
+    navigator.wakeLock.request("screen").then(function (l) { wakeLock = l; }).catch(function () {});
+  }
+  document.addEventListener("visibilitychange", function () {
+    if (running && document.visibilityState === "visible") { keepAwake(); poll(); }
+  });
+
+  // ---- 主迴圈 ----
+  var running = false, timer = null, timetable = {}, last = {}, busy = false;
+  function setStatus(msg, err) { $("status").textContent = msg; $("status").className = err ? "err" : ""; }
+
+  function render(items) {
+    var ul = $("trains"); ul.textContent = "";
+    if (!items.length) {
+      var li = document.createElement("li"); li.className = "empty";
+      li.textContent = "這個時段查不到班次（日期可能尚未開放，或起迄站設定有誤）";
+      ul.appendChild(li); return;
+    }
+    items.forEach(function (it) {
+      var li = document.createElement("li");
+      var t = document.createElement("span"); t.className = "time"; t.textContent = it.dep;
+      var n = document.createElement("span"); n.className = "no"; n.textContent = "車次 " + it.no;
+      li.appendChild(t); li.appendChild(n);
+      it.classes.forEach(function (c) {
+        var p = document.createElement("span");
+        p.className = "pill " + (c.open ? "open" : "full");
+        p.textContent = c.label + (c.open ? " 有位" : " 售完");
+        li.appendChild(p);
+      });
+      ul.appendChild(li);
+    });
+  }
+
+  function poll() {
+    if (!running || busy) return;
+    busy = true;
+    var o = $("from").value, d = $("to").value, date = $("date").value;
+    var lo = mins($("start").value), hi = mins($("end").value);
+    api("AvailableSeatStatus/Train/OD/" + o + "/to/" + d + "/TrainDate/" + date).then(function (res) {
+      var rows = Array.isArray(res) ? res : (res.AvailableSeats || []);
+      var items = [], fresh = [];
+      rows.forEach(function (r) {
+        var no = r.TrainNo, dep = String(r.DepartureTime || timetable[no] || "").slice(0, 5);
+        if (!no || !dep) return;
+        var m = mins(dep);
+        if (m < lo || m > hi) return;
+        var classes = [["標準", "StandardSeatStatus"]];
+        if ($("business").checked) classes.push(["商務", "BusinessSeatStatus"]);
+        var out = classes.map(function (c) {
+          var open = !!OPEN[seatState(r, c[1], d)], k = no + c[0];
+          if (open && !last[k]) fresh.push(dep + " 車次" + no + " " + c[0]);
+          last[k] = open;
+          return { label: c[0], open: open };
+        });
+        items.push({ dep: dep, no: no, classes: out });
+      });
+      items.sort(function (a, b) { return a.dep < b.dep ? -1 : 1; });
+      render(items);
+      if (fresh.length) alertUser(fresh);
+      else if (!items.some(function (i) { return i.classes.some(function (c) { return c.open; }); })) clearAlert();
+      setStatus("監控中 · 上次查詢 " + new Date().toLocaleTimeString("zh-TW", { hour12: false }));
+    }).catch(function (e) {
+      var msg = e && e.message === "Failed to fetch" ? "連線失敗，請檢查網路" : (e.message || String(e));
+      setStatus(msg + "（會自動重試）", true);
+    }).then(function () { busy = false; });
+  }
+
+  function start() {
+    if (!$("cid").value.trim() || !$("secret").value.trim()) {
+      $("settings").open = true; $("cid").focus();
+      setStatus("請先填入 TDX 的 Client ID 與 Client Secret", true); return;
+    }
+    if ($("from").value === $("to").value) { setStatus("起站和迄站不能相同", true); return; }
+    if (!$("date").value || !$("start").value || !$("end").value) { setStatus("請填好日期與時段", true); return; }
+    save();
+    try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); } catch (e) {}
+    running = true; last = {}; timetable = {}; token = null;
+    $("toggle").textContent = "停止監控"; $("toggle").classList.add("running");
+    setStatus("連線中…"); keepAwake();
+    var sec = Math.max(10, parseInt($("interval").value, 10) || 30);
+    api("DailyTimetable/OD/" + $("from").value + "/to/" + $("to").value + "/" + $("date").value)
+      .then(function (rows) {
+        (rows || []).forEach(function (r) {
+          var no = r.DailyTrainInfo && r.DailyTrainInfo.TrainNo;
+          var dep = r.OriginStopTime && r.OriginStopTime.DepartureTime;
+          if (no && dep) timetable[no] = dep;
+        });
+      })
+      .catch(function (e) { setStatus((e.message || e) + "", true); })
+      .then(function () {
+        if (!running) return;
+        poll();
+        timer = setInterval(poll, sec * 1000);
+      });
+  }
+  function stop() {
+    running = false; clearInterval(timer); clearAlert();
+    if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
+    $("toggle").textContent = "開始監控"; $("toggle").classList.remove("running");
+    setStatus("已停止");
+  }
+  $("toggle").addEventListener("click", function () { running ? stop() : start(); });
+  $("form").addEventListener("submit", function (e) { e.preventDefault(); });
+})();
+</script>
+</body>
+</html>
